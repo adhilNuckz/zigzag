@@ -14,8 +14,9 @@ initSocket(server);
 
 connectDB().then(() => {
   startCronJobs();
-  server.listen(PORT, '127.0.0.1', () => {
-    logger.info(`ZigZag server listening on 127.0.0.1:${PORT}`);
+  const HOST = process.env.HOST || '0.0.0.0';
+  server.listen(PORT, HOST, () => {
+    logger.info(`ZigZag server listening on ${HOST}:${PORT}`);
   });
 }).catch((err) => {
   logger.error('Failed to connect to database', err);

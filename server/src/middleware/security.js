@@ -12,8 +12,8 @@ const securityHeaders = (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
 
-  // Onion-only enforcement in production
-  if (process.env.NODE_ENV === 'production') {
+  // Onion-only enforcement (opt-in via ONION_ONLY=true)
+  if (process.env.ONION_ONLY === 'true') {
     const host = req.headers.host || '';
     if (!host.endsWith('.onion')) {
       return res.status(403).json({ error: 'Access only via .onion address.' });
