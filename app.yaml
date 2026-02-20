@@ -1,0 +1,90 @@
+# DigitalOcean App Platform Spec
+# Deploy via: doctl apps create --spec .do/app.yaml
+# Or paste this in the App Platform UI under "App Spec" editor
+#
+# Architecture: Route-based — client and server share the same domain.
+#   /api/*        → zigzag-server (Node.js)
+#   /socket.io/*  → zigzag-server (WebSocket)
+#   /uploads/*    → zigzag-server (static files)
+#   /*            → zigzag-client (React SPA)
+#
+# MongoDB: Use MongoDB Atlas (free tier 512MB) — DO doesn't offer managed Mongo.
+#   1. Create a free cluster at https://cloud.mongodb.com
+#   2. Whitelist 0.0.0.0/0 (or DO outbound IPs)
+#   3. Paste the connection string into MONGO_URI below
+
+name: zigzag
+region: nyc
+
+# =============================
+# Backend API + WebSocket Server
+# =============================
+services:
+  - name: zigzag-server
+    github:
+      repo: adhilNuckz/zigzag
+      branch: main
+      deploy_on_push: true
+    source_dir: /server
+    environment_slug: node-js
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    http_port: 3001
+    run_command: node src/index.js
+    build_command: npm install
+    routes:
+      - path: /api
+      - path: /socket.io
+      - path: /uploads
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3001"
+      - key: CLIENT_URL
+        value: ${APP_URL}
+      - key: ONION_ONLY
+        value: "false"
+      - key: SESSION_SECRET
+        type: SECRET
+        value: CHANGE_ME_GENERATE_RANDOM_64_HEX
+      - key: MONGO_URI
+        type: SECRET
+        value: YOUR_MONGODB_ATLAS_CONNECTION_STRING
+      - key: RATE_LIMIT_WINDOW
+        value: "900000"
+      - key: RATE_LIMIT_MAX
+        value: "100"
+      - key: CHAT_RATE_LIMIT
+        value: "30"
+      - key: MAX_FILE_SIZE
+        value: "5242880"
+      - key: MESSAGE_TTL
+        value: "24"
+      # Optional security tool API keys
+      - key: VIRUSTOTAL_API_KEY
+        type: SECRET
+        value: ""
+      - key: PHISHTANK_API_KEY
+        type: SECRET
+        value: ""
+      - key: HIBP_API_KEY
+        type: SECRET
+        value: ""
+
+# =============================
+# Frontend Static Site
+# =============================
+static_sites:
+  - name: zigzag-client
+    github:
+      repo: adhilNuckz/zigzag
+      branch: main
+      deploy_on_push: true
+    source_dir: /client
+    build_command: npm install && npm run build
+    output_dir: /dist
+    environment_slug: node-js
+    catchall_document: index.html
+    routes:
+      - path: /
