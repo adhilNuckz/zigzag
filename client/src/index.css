@@ -1,0 +1,151 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* === Base Styles === */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #39ff14 #0a0a0a;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+*::-webkit-scrollbar-thumb {
+  background: #39ff14;
+  border-radius: 3px;
+}
+
+::selection {
+  background: #39ff1440;
+  color: #39ff14;
+}
+
+body {
+  background: #000000;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* === CRT Scanline Overlay === */
+.scanline-overlay::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* === Terminal Card === */
+@layer components {
+  .terminal-card {
+    @apply bg-dark-700 border border-dark-400 rounded-sm p-4;
+    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.5);
+  }
+
+  .terminal-card:hover {
+    @apply border-lime-500/30;
+    box-shadow: 0 0 10px rgba(57, 255, 20, 0.05), inset 0 0 30px rgba(0, 0, 0, 0.5);
+  }
+
+  .neon-border {
+    @apply border border-lime-500/20;
+  }
+
+  .neon-border:hover {
+    @apply border-lime-500/50;
+    box-shadow: 0 0 10px rgba(57, 255, 20, 0.1);
+  }
+
+  .btn-primary {
+    @apply bg-lime-500 text-black font-mono font-bold px-4 py-2 text-sm
+           hover:bg-lime-400 active:bg-lime-600 transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply border border-lime-500/30 text-lime-500 font-mono px-4 py-2 text-sm
+           hover:bg-lime-500/10 hover:border-lime-500/60 transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .input-field {
+    @apply bg-dark-800 border border-dark-400 text-lime-500 font-mono px-3 py-2 text-sm
+           placeholder:text-dark-300 focus:outline-none focus:border-lime-500/50
+           transition-colors w-full;
+  }
+
+  .tag-pill {
+    @apply inline-block bg-lime-500/10 text-lime-500 text-xs font-mono px-2 py-0.5
+           border border-lime-500/20 hover:border-lime-500/40 cursor-pointer
+           transition-colors;
+  }
+}
+
+/* === Typing dots animation === */
+.typing-dots span {
+  animation: typing 1.4s infinite;
+  display: inline-block;
+}
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* === Glitch text effect === */
+.glitch {
+  position: relative;
+}
+.glitch::before,
+.glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+.glitch::before {
+  animation: glitch-1 2s infinite linear alternate-reverse;
+  clip-path: polygon(0 0, 100% 0, 100% 45%, 0 45%);
+  color: #ff0000;
+  opacity: 0.1;
+}
+.glitch::after {
+  animation: glitch-2 3s infinite linear alternate-reverse;
+  clip-path: polygon(0 55%, 100% 55%, 100% 100%, 0 100%);
+  color: #0000ff;
+  opacity: 0.1;
+}
+
+@keyframes glitch-1 {
+  0% { transform: translateX(0); }
+  20% { transform: translateX(-2px); }
+  40% { transform: translateX(2px); }
+  60% { transform: translateX(-1px); }
+  80% { transform: translateX(1px); }
+  100% { transform: translateX(0); }
+}
+@keyframes glitch-2 {
+  0% { transform: translateX(0); }
+  20% { transform: translateX(2px); }
+  40% { transform: translateX(-2px); }
+  60% { transform: translateX(1px); }
+  80% { transform: translateX(-1px); }
+  100% { transform: translateX(0); }
+}

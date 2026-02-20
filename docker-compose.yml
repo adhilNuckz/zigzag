@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: zigzag-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - zigzag-net
+    # No port exposure — internal only
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: zigzag-server
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - MONGO_URI=mongodb://mongo:27017/zigzag
+      - SESSION_SECRET=${SESSION_SECRET}
+      - CLIENT_URL=http://localhost:3001
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - zigzag-net
+    # No port exposure — Nginx handles routing
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: zigzag-client
+    restart: unless-stopped
+    networks:
+      - zigzag-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: zigzag-nginx
+    restart: unless-stopped
+    depends_on:
+      - server
+      - client
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:8080:80"  # Only localhost — Tor connects here
+    networks:
+      - zigzag-net
+
+  tor:
+    build:
+      context: ./deploy/tor
+      dockerfile: Dockerfile
+    container_name: zigzag-tor
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    volumes:
+      - tor_data:/var/lib/tor/hidden_service
+    networks:
+      - zigzag-net
+
+volumes:
+  mongo_data:
+  uploads_data:
+  tor_data:
+
+networks:
+  zigzag-net:
+    driver: bridge
