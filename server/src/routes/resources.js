@@ -1,4 +1,5 @@
 const express = require('express');
+const { Op, Sequelize } = require('sequelize');
 const Resource = require('../models/Resource');
 const { authenticate, optionalAuth } = require('../middleware/auth');
 const { sanitizeBody, isSafeUrl } = require('../middleware/sanitize');
@@ -6,9 +7,18 @@ const { uploadLimiter } = require('../middleware/rateLimiter');
 const { upload } = require('../utils/upload');
 const { processImage, validateFileType } = require('../utils/fileProcessor');
 const fs = require('fs').promises;
-const path = require('path');
 
 const router = express.Router();
+
+// Format resource to match the shape the frontend expects
+function fmt(r) {
+  const j = r.toJSON();
+  return {
+    _id: j.id,
+    ...j,
+    author: { anonId: j.authorAnonId, alias: j.authorAlias },
+  };
+}
 
 /**
  * GET /api/resources?sort=newest|trending|views&tag=&search=&page=1
@@ -17,33 +27,37 @@ router.get('/', optionalAuth, async (req, res, next) => {
   try {
     const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = 20;
-    const skip = (page - 1) * limit;
+    const offset = (page - 1) * limit;
 
-    const filter = { hidden: false };
+    const where = { hidden: false };
 
     if (req.query.tag) {
-      filter.tags = req.query.tag.toLowerCase().trim();
+      where.tags = { [Op.like]: `%"${req.query.tag.toLowerCase().trim()}"%` };
     }
 
     if (req.query.search) {
-      filter.$text = { $search: req.query.search };
+      where[Op.or] = [
+        Sequelize.literal(`MATCH(title, description) AGAINST(${Resource.sequelize.escape(req.query.search)} IN BOOLEAN MODE)`),
+      ];
     }
 
-    let sort = { createdAt: -1 };
-    if (req.query.sort === 'views') sort = { views: -1 };
-    if (req.query.sort === 'trending') sort = { views: -1, createdAt: -1 };
+    let order = [['createdAt', 'DESC']];
+    if (req.query.sort === 'views') order = [['views', 'DESC']];
+    if (req.query.sort === 'trending') order = [['views', 'DESC'], ['createdAt', 'DESC']];
 
-    const [resources, total] = await Promise.all([
-      Resource.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-      Resource.countDocuments(filter),
-    ]);
+    const { rows, count } = await Resource.findAndCountAll({
+      where,
+      order,
+      limit,
+      offset,
+    });
 
     res.json({
-      resources,
+      resources: rows.map(fmt),
       pagination: {
         page,
-        pages: Math.ceil(total / limit),
-        total,
+        pages: Math.ceil(count / limit),
+        total: count,
       },
     });
   } catch (err) {
@@ -56,14 +70,16 @@ router.get('/', optionalAuth, async (req, res, next) => {
  */
 router.get('/:id', optionalAuth, async (req, res, next) => {
   try {
-    const resource = await Resource.findOneAndUpdate(
-      { _id: req.params.id, hidden: false },
-      { $inc: { views: 1 } },
-      { new: true }
-    ).lean();
+    const resource = await Resource.findOne({
+      where: { id: req.params.id, hidden: false },
+    });
 
     if (!resource) return res.status(404).json({ error: 'Not found.' });
-    res.json(resource);
+
+    resource.views += 1;
+    await resource.save();
+
+    res.json(fmt(resource));
   } catch (err) {
     next(err);
   }
@@ -84,38 +100,33 @@ router.post('/', authenticate, uploadLimiter, sanitizeBody, upload.single('file'
       return res.status(400).json({ error: 'Invalid URL.' });
     }
 
-    const resourceData = {
+    const data = {
       title: title.substring(0, 200),
       description: description.substring(0, 2000),
       url: url || null,
       tags: tags ? tags.split(',').map(t => t.trim().toLowerCase()).slice(0, 10) : [],
-      author: {
-        anonId: req.user.anonId,
-        alias: req.user.alias,
-      },
+      authorAnonId: req.user.anonId,
+      authorAlias: req.user.alias,
     };
 
-    // Handle file upload
     if (req.file) {
-      // Validate actual file type
       const detected = await validateFileType(req.file.path);
       if (!detected) {
         await fs.unlink(req.file.path);
         return res.status(400).json({ error: 'Unrecognized file type.' });
       }
 
-      // Process images (compress + strip metadata)
       if (detected.mime.startsWith('image/')) {
         await processImage(req.file.path);
       }
 
-      resourceData.fileUrl = `/uploads/${req.file.filename}`;
-      resourceData.fileName = req.file.originalname;
-      resourceData.fileSize = req.file.size;
+      data.fileUrl = `/uploads/${req.file.filename}`;
+      data.fileName = req.file.originalname;
+      data.fileSize = req.file.size;
     }
 
-    const resource = await Resource.create(resourceData);
-    res.status(201).json(resource);
+    const resource = await Resource.create(data);
+    res.status(201).json(fmt(resource));
   } catch (err) {
     next(err);
   }
@@ -126,20 +137,18 @@ router.post('/', authenticate, uploadLimiter, sanitizeBody, upload.single('file'
  */
 router.post('/:id/report', authenticate, async (req, res, next) => {
   try {
-    const resource = await Resource.findById(req.params.id);
+    const resource = await Resource.findByPk(req.params.id);
     if (!resource) return res.status(404).json({ error: 'Not found.' });
 
-    if (resource.reportedBy.includes(req.user.anonId)) {
+    const reported = resource.reportedBy || [];
+    if (reported.includes(req.user.anonId)) {
       return res.status(400).json({ error: 'Already reported.' });
     }
 
-    resource.reportedBy.push(req.user.anonId);
+    reported.push(req.user.anonId);
+    resource.reportedBy = reported;
     resource.reports += 1;
-
-    // Auto-hide if 5+ reports
-    if (resource.reports >= 5) {
-      resource.hidden = true;
-    }
+    if (resource.reports >= 5) resource.hidden = true;
 
     await resource.save();
     res.json({ success: true });

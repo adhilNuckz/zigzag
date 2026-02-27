@@ -1,60 +1,69 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const ideaSchema = new mongoose.Schema({
+const Idea = sequelize.define('Idea', {
   title: {
-    type: String,
-    required: true,
-    maxlength: 200,
-    index: 'text',
+    type: DataTypes.STRING(200),
+    allowNull: false,
   },
   description: {
-    type: String,
-    required: true,
-    maxlength: 3000,
+    type: DataTypes.TEXT,
+    allowNull: false,
   },
   category: {
-    type: String,
-    required: true,
-    enum: ['security', 'privacy', 'tools', 'network', 'crypto', 'social', 'other'],
-    default: 'other',
+    type: DataTypes.ENUM('security', 'privacy', 'tools', 'network', 'crypto', 'social', 'other'),
+    defaultValue: 'other',
   },
   howIBuiltThis: {
-    type: String,
-    maxlength: 5000,
-    default: null,
+    type: DataTypes.TEXT,
+    defaultValue: null,
   },
-  author: {
-    anonId: { type: String, required: true },
-    alias: { type: String, required: true },
+  authorAnonId: {
+    type: DataTypes.STRING(36),
+    allowNull: false,
+  },
+  authorAlias: {
+    type: DataTypes.STRING(100),
+    allowNull: false,
   },
   upvotes: {
-    type: Number,
-    default: 0,
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
   },
-  upvotedBy: [{
-    type: String,
-  }],
-  savedBy: [{
-    type: String, // anonIds
-  }],
+  upvotedBy: {
+    type: DataTypes.JSON,
+    defaultValue: [],
+  },
+  savedBy: {
+    type: DataTypes.JSON,
+    defaultValue: [],
+  },
   views: {
-    type: Number,
-    default: 0,
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
   },
   reports: {
-    type: Number,
-    default: 0,
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+  },
+  reportedBy: {
+    type: DataTypes.JSON,
+    defaultValue: [],
   },
   hidden: {
-    type: Boolean,
-    default: false,
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
   },
 }, {
+  tableName: 'ideas',
   timestamps: true,
+  indexes: [
+    { fields: ['createdAt'] },
+    { fields: ['upvotes'] },
+    { fields: ['category'] },
+    { fields: ['hidden'] },
+    { type: 'FULLTEXT', fields: ['title', 'description'] },
+  ],
 });
 
-ideaSchema.index({ createdAt: -1 });
-ideaSchema.index({ upvotes: -1 });
-ideaSchema.index({ category: 1 });
-
-module.exports = mongoose.model('Idea', ideaSchema);
+module.exports = Idea;

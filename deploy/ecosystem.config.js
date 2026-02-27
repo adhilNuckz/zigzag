@@ -10,6 +10,7 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: 3001,
+      HOST: '127.0.0.1',
     },
     // Do NOT log IPs or user data
     log_date_format: 'YYYY-MM-DD HH:mm:ss',

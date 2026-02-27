@@ -2,7 +2,6 @@ const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const compression = require('compression');
-const mongoSanitize = require('express-mongo-sanitize');
 const hpp = require('hpp');
 const path = require('path');
 
@@ -43,7 +42,6 @@ app.use(helmet({
 }));
 
 app.use(securityHeaders);
-app.use(mongoSanitize());
 app.use(hpp());
 app.use(compression());
 

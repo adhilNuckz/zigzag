@@ -1,50 +1,42 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const userSchema = new mongoose.Schema({
+const User = sequelize.define('User', {
   anonId: {
-    type: String,
-    required: true,
+    type: DataTypes.STRING(36),
+    allowNull: false,
     unique: true,
-    index: true,
   },
   alias: {
-    type: String,
-    required: true,
+    type: DataTypes.STRING(100),
+    allowNull: false,
   },
   tokenHash: {
-    type: String,
-    required: true,
+    type: DataTypes.STRING(64),
+    allowNull: false,
     unique: true,
-    index: true,
   },
-  // Optional encrypted passphrase for session recovery (client-side encrypted)
   recoveryPhrase: {
-    type: String,
-    default: null,
+    type: DataTypes.STRING(500),
+    defaultValue: null,
   },
   active: {
-    type: Boolean,
-    default: true,
-  },
-  bookmarks: [{
-    type: mongoose.Schema.Types.ObjectId,
-    refPath: 'bookmarkModel',
-  }],
-  bookmarkModel: {
-    type: String,
-    enum: ['Idea', 'Resource', 'BlogPost'],
-    default: 'Idea',
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
   },
   lastSeen: {
-    type: Date,
-    default: Date.now,
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW,
   },
 }, {
+  tableName: 'users',
   timestamps: true,
-  // Never store IP or user-agent
+  indexes: [
+    { fields: ['anonId'] },
+    { fields: ['tokenHash'] },
+    { fields: ['lastSeen'] },
+    { fields: ['active'] },
+  ],
 });
 
-// Auto-cleanup inactive users after 30 days
-userSchema.index({ lastSeen: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
-
-module.exports = mongoose.model('User', userSchema);
+module.exports = User;

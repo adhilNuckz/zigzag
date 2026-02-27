@@ -1,16 +1,6 @@
-# Tor Hidden Service Configuration for ZigZag
+# ZigZag Tor Hidden Service Configuration
+# Place this at /etc/tor/torrc or append to existing torrc
 
-# Run as daemon: no (Docker manages the process)
-RunAsDaemon 0
-
-# SOCKSPort disabled — we only host a hidden service
-SocksPort 0
-
-# Hidden Service config
-HiddenServiceDir /var/lib/tor/hidden_service
-HiddenServicePort 80 nginx:80
-
-# Security settings
-HardwareAccel 1
-SafeLogging 1
-Log notice stdout
+# Hidden Service pointing to the local Node.js server via Apache
+HiddenServiceDir /var/lib/tor/zigzag/
+HiddenServicePort 80 127.0.0.1:80

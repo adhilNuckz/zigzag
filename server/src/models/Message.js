@@ -1,34 +1,38 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const messageSchema = new mongoose.Schema({
+const Message = sequelize.define('Message', {
   content: {
-    type: String,
-    required: true,
-    maxlength: 2000,
+    type: DataTypes.TEXT,
+    allowNull: false,
   },
   type: {
-    type: String,
-    enum: ['text', 'image'],
-    default: 'text',
+    type: DataTypes.ENUM('text', 'image'),
+    defaultValue: 'text',
   },
   imageUrl: {
-    type: String,
-    default: null,
+    type: DataTypes.STRING(500),
+    defaultValue: null,
   },
-  sender: {
-    anonId: { type: String, required: true },
-    alias: { type: String, required: true },
+  senderAnonId: {
+    type: DataTypes.STRING(36),
+    allowNull: false,
+  },
+  senderAlias: {
+    type: DataTypes.STRING(100),
+    allowNull: false,
   },
   room: {
-    type: String,
-    default: 'global',
-    index: true,
+    type: DataTypes.STRING(50),
+    defaultValue: 'global',
   },
 }, {
+  tableName: 'messages',
   timestamps: true,
+  indexes: [
+    { fields: ['room'] },
+    { fields: ['createdAt'] },
+  ],
 });
 
-// TTL index — auto-delete messages after 24 hours
-messageSchema.index({ createdAt: 1 }, { expireAfterSeconds: 24 * 60 * 60 });
-
-module.exports = mongoose.model('Message', messageSchema);
+module.exports = Message;

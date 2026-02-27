@@ -12,7 +12,6 @@ const router = express.Router();
 /**
  * POST /api/auth/register
  * Create anonymous identity. No email, no password.
- * Returns: { anonId, alias, token }
  */
 router.post('/register', authLimiter, async (req, res, next) => {
   try {
@@ -21,16 +20,12 @@ router.post('/register', authLimiter, async (req, res, next) => {
     const token = crypto.randomBytes(48).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
-    const user = await User.create({
-      anonId,
-      alias,
-      tokenHash,
-    });
+    const user = await User.create({ anonId, alias, tokenHash });
 
     res.status(201).json({
       anonId: user.anonId,
       alias: user.alias,
-      token, // Only returned once — client must store it
+      token,
     });
   } catch (err) {
     next(err);
@@ -39,7 +34,6 @@ router.post('/register', authLimiter, async (req, res, next) => {
 
 /**
  * GET /api/auth/me
- * Get current session info.
  */
 router.get('/me', authenticate, async (req, res) => {
   res.json({
@@ -50,7 +44,6 @@ router.get('/me', authenticate, async (req, res) => {
 
 /**
  * POST /api/auth/rotate
- * Rotate session token. Returns new token, invalidates old.
  */
 router.post('/rotate', authenticate, async (req, res, next) => {
   try {
@@ -68,7 +61,6 @@ router.post('/rotate', authenticate, async (req, res, next) => {
 
 /**
  * POST /api/auth/recover
- * Set or use recovery passphrase (client-side encrypted blob).
  */
 router.post('/recover', sanitizeBody, async (req, res, next) => {
   try {
@@ -78,13 +70,11 @@ router.post('/recover', sanitizeBody, async (req, res, next) => {
       return res.status(400).json({ error: 'Recovery phrase and anonId required.' });
     }
 
-    // Attempt recovery
-    const user = await User.findOne({ anonId, recoveryPhrase, active: true });
+    const user = await User.findOne({ where: { anonId, recoveryPhrase, active: true } });
     if (!user) {
       return res.status(404).json({ error: 'No matching recovery found.' });
     }
 
-    // Issue new token
     const newToken = crypto.randomBytes(48).toString('hex');
     user.tokenHash = crypto.createHash('sha256').update(newToken).digest('hex');
     await user.save();
@@ -101,7 +91,6 @@ router.post('/recover', sanitizeBody, async (req, res, next) => {
 
 /**
  * POST /api/auth/set-recovery
- * Store encrypted passphrase for future recovery.
  */
 router.post('/set-recovery', authenticate, sanitizeBody, async (req, res, next) => {
   try {
@@ -121,7 +110,6 @@ router.post('/set-recovery', authenticate, sanitizeBody, async (req, res, next) 
 
 /**
  * POST /api/auth/logout
- * Invalidate session.
  */
 router.post('/logout', authenticate, async (req, res, next) => {
   try {

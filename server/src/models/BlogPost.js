@@ -1,72 +1,66 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const commentSchema = new mongoose.Schema({
-  content: {
-    type: String,
-    required: true,
-    maxlength: 1000,
-  },
-  author: {
-    anonId: { type: String, required: true },
-    alias: { type: String, required: true },
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-});
-
-const blogPostSchema = new mongoose.Schema({
+const BlogPost = sequelize.define('BlogPost', {
   title: {
-    type: String,
-    required: true,
-    maxlength: 300,
-    index: 'text',
+    type: DataTypes.STRING(300),
+    allowNull: false,
   },
   content: {
-    type: String,
-    required: true,
-    maxlength: 50000, // ~50KB markdown
+    type: DataTypes.TEXT('long'), // ~50KB markdown
+    allowNull: false,
   },
   excerpt: {
-    type: String,
-    maxlength: 500,
+    type: DataTypes.STRING(500),
+    defaultValue: null,
   },
-  author: {
-    anonId: { type: String, required: true },
-    alias: { type: String, required: true },
+  authorAnonId: {
+    type: DataTypes.STRING(36),
+    allowNull: false,
+  },
+  authorAlias: {
+    type: DataTypes.STRING(100),
+    allowNull: false,
+  },
+  // Stored as JSON array: ["privacy", "crypto"]
+  tags: {
+    type: DataTypes.JSON,
+    defaultValue: [],
   },
   upvotes: {
-    type: Number,
-    default: 0,
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
   },
-  upvotedBy: [{
-    type: String, // anonIds
-  }],
-  comments: [commentSchema],
-  tags: [{
-    type: String,
-    lowercase: true,
-    trim: true,
-  }],
+  // JSON array of anonIds who upvoted
+  upvotedBy: {
+    type: DataTypes.JSON,
+    defaultValue: [],
+  },
   views: {
-    type: Number,
-    default: 0,
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
   },
   reports: {
-    type: Number,
-    default: 0,
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+  },
+  reportedBy: {
+    type: DataTypes.JSON,
+    defaultValue: [],
   },
   hidden: {
-    type: Boolean,
-    default: false,
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
   },
 }, {
+  tableName: 'blog_posts',
   timestamps: true,
+  indexes: [
+    { fields: ['createdAt'] },
+    { fields: ['upvotes'] },
+    { fields: ['hidden'] },
+    { type: 'FULLTEXT', fields: ['title', 'content'] },
+  ],
 });
 
-blogPostSchema.index({ createdAt: -1 });
-blogPostSchema.index({ upvotes: -1 });
-blogPostSchema.index({ tags: 1 });
-
-module.exports = mongoose.model('BlogPost', blogPostSchema);
+module.exports = BlogPost;

@@ -9,7 +9,7 @@ let io;
 
 // Per-socket rate limiting
 const rateLimitMap = new Map();
-const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const RATE_LIMIT_WINDOW = 60000;
 const RATE_LIMIT_MAX = 30;
 
 function isRateLimited(socketId) {
@@ -35,7 +35,7 @@ function initSocket(server) {
     },
     pingTimeout: 20000,
     pingInterval: 25000,
-    maxHttpBufferSize: 1e6, // 1MB max
+    maxHttpBufferSize: 1e6,
     transports: ['websocket', 'polling'],
   });
 
@@ -46,7 +46,7 @@ function initSocket(server) {
       if (!token) return next(new Error('Authentication required'));
 
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-      const user = await User.findOne({ tokenHash, active: true });
+      const user = await User.findOne({ where: { tokenHash, active: true } });
       if (!user) return next(new Error('Invalid session'));
 
       socket.user = {
@@ -62,20 +62,17 @@ function initSocket(server) {
   io.on('connection', (socket) => {
     logger.info(`Socket connected: ${socket.user.alias}`);
 
-    // Auto-join global room
     socket.join('global');
 
-    // Notify room
     socket.to('global').emit('user:joined', {
       alias: socket.user.alias,
       timestamp: Date.now(),
     });
 
-    // Send online count
     const onlineCount = io.sockets.adapter.rooms.get('global')?.size || 0;
     io.to('global').emit('room:count', onlineCount);
 
-    // === Chat Message ===
+    // === Chat Message (real-time via Socket.io, persisted to MySQL) ===
     socket.on('chat:message', async (data) => {
       try {
         if (isRateLimited(socket.id)) {
@@ -93,21 +90,23 @@ function initSocket(server) {
           content,
           type: data.type === 'image' ? 'image' : 'text',
           imageUrl: data.type === 'image' ? data.imageUrl : null,
-          sender: {
-            anonId: socket.user.anonId,
-            alias: socket.user.alias,
-          },
+          senderAnonId: socket.user.anonId,
+          senderAlias: socket.user.alias,
           room: 'global',
         };
 
         const message = await Message.create(msgData);
 
+        // Broadcast to all clients in real-time
         io.to('global').emit('chat:message', {
-          _id: message._id,
+          _id: message.id,
           content: message.content,
           type: message.type,
           imageUrl: message.imageUrl,
-          sender: message.sender,
+          sender: {
+            anonId: message.senderAnonId,
+            alias: message.senderAlias,
+          },
           createdAt: message.createdAt,
         });
       } catch (err) {

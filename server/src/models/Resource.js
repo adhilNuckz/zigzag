@@ -1,63 +1,70 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const resourceSchema = new mongoose.Schema({
+const Resource = sequelize.define('Resource', {
   title: {
-    type: String,
-    required: true,
-    maxlength: 200,
-    index: 'text',
+    type: DataTypes.STRING(200),
+    allowNull: false,
   },
   description: {
-    type: String,
-    required: true,
-    maxlength: 2000,
+    type: DataTypes.TEXT,
+    allowNull: false,
   },
   url: {
-    type: String,
-    default: null,
+    type: DataTypes.STRING(2000),
+    defaultValue: null,
   },
   fileUrl: {
-    type: String,
-    default: null,
+    type: DataTypes.STRING(500),
+    defaultValue: null,
   },
   fileName: {
-    type: String,
-    default: null,
+    type: DataTypes.STRING(255),
+    defaultValue: null,
   },
   fileSize: {
-    type: Number,
-    default: 0,
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
   },
-  tags: [{
-    type: String,
-    lowercase: true,
-    trim: true,
-  }],
-  author: {
-    anonId: { type: String, required: true },
-    alias: { type: String, required: true },
+  // Stored as JSON array: ["privacy", "tools"]
+  tags: {
+    type: DataTypes.JSON,
+    defaultValue: [],
+  },
+  authorAnonId: {
+    type: DataTypes.STRING(36),
+    allowNull: false,
+  },
+  authorAlias: {
+    type: DataTypes.STRING(100),
+    allowNull: false,
   },
   views: {
-    type: Number,
-    default: 0,
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
   },
   reports: {
-    type: Number,
-    default: 0,
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
   },
-  reportedBy: [{
-    type: String, // anonIds
-  }],
+  // Stored as JSON array of anonIds
+  reportedBy: {
+    type: DataTypes.JSON,
+    defaultValue: [],
+  },
   hidden: {
-    type: Boolean,
-    default: false,
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
   },
 }, {
+  tableName: 'resources',
   timestamps: true,
+  indexes: [
+    { fields: ['createdAt'] },
+    { fields: ['views'] },
+    { fields: ['hidden'] },
+    { type: 'FULLTEXT', fields: ['title', 'description'] },
+  ],
 });
 
-resourceSchema.index({ tags: 1 });
-resourceSchema.index({ createdAt: -1 });
-resourceSchema.index({ views: -1 });
-
-module.exports = mongoose.model('Resource', resourceSchema);
+module.exports = Resource;

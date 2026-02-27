@@ -1,10 +1,31 @@
 const express = require('express');
+const { Op, Sequelize } = require('sequelize');
 const BlogPost = require('../models/BlogPost');
+const Comment = require('../models/Comment');
 const { authenticate, optionalAuth } = require('../middleware/auth');
 const { sanitizeBody } = require('../middleware/sanitize');
 const { chatLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
+
+function fmt(p, includeComments = false) {
+  const j = p.toJSON();
+  const out = {
+    _id: j.id,
+    ...j,
+    author: { anonId: j.authorAnonId, alias: j.authorAlias },
+  };
+  if (!includeComments) delete out.comments;
+  if (j.comments) {
+    out.comments = j.comments.map(c => ({
+      _id: c.id,
+      content: c.content,
+      author: { anonId: c.authorAnonId, alias: c.authorAlias },
+      createdAt: c.createdAt,
+    }));
+  }
+  return out;
+}
 
 /**
  * GET /api/blog?sort=newest|trending|upvotes&tag=&search=&page=1
@@ -13,26 +34,34 @@ router.get('/', optionalAuth, async (req, res, next) => {
   try {
     const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = 15;
-    const skip = (page - 1) * limit;
-    const filter = { hidden: false };
+    const offset = (page - 1) * limit;
+    const where = { hidden: false };
 
-    if (req.query.tag) filter.tags = req.query.tag.toLowerCase().trim();
-    if (req.query.search) filter.$text = { $search: req.query.search };
+    if (req.query.tag) {
+      where.tags = { [Op.like]: `%"${req.query.tag.toLowerCase().trim()}"%` };
+    }
 
-    let sort = { createdAt: -1 };
-    if (req.query.sort === 'upvotes') sort = { upvotes: -1 };
-    if (req.query.sort === 'trending') sort = { upvotes: -1, views: -1, createdAt: -1 };
+    if (req.query.search) {
+      where[Op.or] = [
+        Sequelize.literal(`MATCH(title, content) AGAINST(${BlogPost.sequelize.escape(req.query.search)} IN BOOLEAN MODE)`),
+      ];
+    }
 
-    const [posts, total] = await Promise.all([
-      BlogPost.find(filter)
-        .select('-comments') // Don't load comments in list
-        .sort(sort).skip(skip).limit(limit).lean(),
-      BlogPost.countDocuments(filter),
-    ]);
+    let order = [['createdAt', 'DESC']];
+    if (req.query.sort === 'upvotes') order = [['upvotes', 'DESC']];
+    if (req.query.sort === 'trending') order = [['upvotes', 'DESC'], ['views', 'DESC'], ['createdAt', 'DESC']];
+
+    const { rows, count } = await BlogPost.findAndCountAll({
+      where,
+      order,
+      limit,
+      offset,
+      attributes: { exclude: ['content'] }, // Don't load full content in list
+    });
 
     res.json({
-      posts,
-      pagination: { page, pages: Math.ceil(total / limit), total },
+      posts: rows.map(p => fmt(p)),
+      pagination: { page, pages: Math.ceil(count / limit), total: count },
     });
   } catch (err) {
     next(err);
@@ -44,14 +73,17 @@ router.get('/', optionalAuth, async (req, res, next) => {
  */
 router.get('/:id', optionalAuth, async (req, res, next) => {
   try {
-    const post = await BlogPost.findOneAndUpdate(
-      { _id: req.params.id, hidden: false },
-      { $inc: { views: 1 } },
-      { new: true }
-    ).lean();
+    const post = await BlogPost.findOne({
+      where: { id: req.params.id, hidden: false },
+      include: [{ model: Comment, as: 'comments', order: [['createdAt', 'ASC']] }],
+    });
 
     if (!post) return res.status(404).json({ error: 'Not found.' });
-    res.json(post);
+
+    post.views += 1;
+    await post.save();
+
+    res.json(fmt(post, true));
   } catch (err) {
     next(err);
   }
@@ -73,13 +105,11 @@ router.post('/', authenticate, sanitizeBody, async (req, res, next) => {
       content: content.substring(0, 50000),
       excerpt: content.substring(0, 500).replace(/[#*_`]/g, ''),
       tags: tags ? tags.split(',').map(t => t.trim().toLowerCase()).slice(0, 10) : [],
-      author: {
-        anonId: req.user.anonId,
-        alias: req.user.alias,
-      },
+      authorAnonId: req.user.anonId,
+      authorAlias: req.user.alias,
     });
 
-    res.status(201).json(post);
+    res.status(201).json(fmt(post));
   } catch (err) {
     next(err);
   }
@@ -90,15 +120,16 @@ router.post('/', authenticate, sanitizeBody, async (req, res, next) => {
  */
 router.post('/:id/upvote', authenticate, async (req, res, next) => {
   try {
-    const post = await BlogPost.findById(req.params.id);
+    const post = await BlogPost.findByPk(req.params.id);
     if (!post) return res.status(404).json({ error: 'Not found.' });
 
-    if (post.upvotedBy.includes(req.user.anonId)) {
-      // Remove upvote (toggle)
-      post.upvotedBy = post.upvotedBy.filter(id => id !== req.user.anonId);
+    const voted = post.upvotedBy || [];
+    if (voted.includes(req.user.anonId)) {
+      post.upvotedBy = voted.filter(id => id !== req.user.anonId);
       post.upvotes = Math.max(0, post.upvotes - 1);
     } else {
-      post.upvotedBy.push(req.user.anonId);
+      voted.push(req.user.anonId);
+      post.upvotedBy = voted;
       post.upvotes += 1;
     }
 
@@ -117,19 +148,22 @@ router.post('/:id/comments', authenticate, chatLimiter, sanitizeBody, async (req
     const { content } = req.body;
     if (!content) return res.status(400).json({ error: 'Content required.' });
 
-    const post = await BlogPost.findById(req.params.id);
+    const post = await BlogPost.findByPk(req.params.id);
     if (!post || post.hidden) return res.status(404).json({ error: 'Not found.' });
 
-    post.comments.push({
+    const comment = await Comment.create({
       content: content.substring(0, 1000),
-      author: {
-        anonId: req.user.anonId,
-        alias: req.user.alias,
-      },
+      authorAnonId: req.user.anonId,
+      authorAlias: req.user.alias,
+      blogPostId: post.id,
     });
 
-    await post.save();
-    res.status(201).json(post.comments[post.comments.length - 1]);
+    res.status(201).json({
+      _id: comment.id,
+      content: comment.content,
+      author: { anonId: comment.authorAnonId, alias: comment.authorAlias },
+      createdAt: comment.createdAt,
+    });
   } catch (err) {
     next(err);
   }
@@ -140,15 +174,16 @@ router.post('/:id/comments', authenticate, chatLimiter, sanitizeBody, async (req
  */
 router.post('/:id/report', authenticate, async (req, res, next) => {
   try {
-    const post = await BlogPost.findById(req.params.id);
+    const post = await BlogPost.findByPk(req.params.id);
     if (!post) return res.status(404).json({ error: 'Not found.' });
 
-    if (!post.reportedBy) post.reportedBy = [];
-    if (post.reportedBy.includes(req.user.anonId)) {
+    const reported = post.reportedBy || [];
+    if (reported.includes(req.user.anonId)) {
       return res.status(400).json({ error: 'Already reported.' });
     }
 
-    post.reportedBy.push(req.user.anonId);
+    reported.push(req.user.anonId);
+    post.reportedBy = reported;
     post.reports += 1;
     if (post.reports >= 5) post.hidden = true;
     await post.save();
