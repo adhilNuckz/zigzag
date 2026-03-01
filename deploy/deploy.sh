@@ -1,6 +1,6 @@
 #!/bin/bash
 # ZigZag Bare-Metal Deployment Script for Ubuntu/Debian
-# Deploys as a Tor Hidden Service (.onion) by default
+# Assumes Tor is already installed and configured separately.
 # Run as root or with sudo
 #
 # Usage:
@@ -20,14 +20,23 @@ if [ "$1" == "--clearnet" ]; then
   DOMAIN="${2:-}"
 fi
 
+# Read existing .onion address if available
+ONION_ADDR=""
+if [ -f /var/lib/tor/zigzag/hostname ]; then
+  ONION_ADDR=$(cat /var/lib/tor/zigzag/hostname)
+fi
+
 echo "=== ZigZag Deployment ==="
 echo "  Mode: $MODE"
+if [ -n "$ONION_ADDR" ]; then
+  echo "  .onion: $ONION_ADDR"
+fi
 echo ""
 
 # --------------------------------------------------
 # 1. System packages
 # --------------------------------------------------
-echo "[1/9] Installing system packages..."
+echo "[1/7] Installing system packages..."
 apt-get update -qq
 apt-get install -y -qq git curl build-essential apache2
 
@@ -36,61 +45,9 @@ if [ "$MODE" == "clearnet" ] && [ -n "$DOMAIN" ]; then
 fi
 
 # --------------------------------------------------
-# 2. Tor
+# 2. Node.js 20 via nvm
 # --------------------------------------------------
-echo "[2/9] Installing Tor..."
-if ! command -v tor &>/dev/null; then
-  apt-get install -y -qq apt-transport-https
-  # Add official Tor Project repo (latest stable)
-  DISTRO=$(lsb_release -cs)
-  echo "deb [signed-by=/usr/share/keyrings/tor-archive-keyring.gpg] https://deb.torproject.org/torproject.org ${DISTRO} main" \
-    > /etc/apt/sources.list.d/tor.list
-  curl -fsSL https://deb.torproject.org/torproject.org/A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89.asc \
-    | gpg --dearmor -o /usr/share/keyrings/tor-archive-keyring.gpg 2>/dev/null || true
-  apt-get update -qq
-  apt-get install -y -qq tor deb.torproject.org-keyring || apt-get install -y -qq tor
-fi
-systemctl enable tor
-
-# Configure hidden service
-mkdir -p /var/lib/tor/zigzag
-chown debian-tor:debian-tor /var/lib/tor/zigzag
-chmod 700 /var/lib/tor/zigzag
-
-# Append hidden service config if not present
-if ! grep -q "HiddenServiceDir /var/lib/tor/zigzag" /etc/tor/torrc 2>/dev/null; then
-  cat >> /etc/tor/torrc <<'TORCONF'
-
-# === ZigZag Hidden Service ===
-HiddenServiceDir /var/lib/tor/zigzag/
-HiddenServicePort 80 127.0.0.1:80
-TORCONF
-fi
-
-systemctl restart tor
-echo "  Tor configured. Waiting for .onion address..."
-sleep 5
-
-ONION_ADDR=""
-for i in $(seq 1 20); do
-  if [ -f /var/lib/tor/zigzag/hostname ]; then
-    ONION_ADDR=$(cat /var/lib/tor/zigzag/hostname)
-    break
-  fi
-  echo "  Waiting... ($i/20)"
-  sleep 3
-done
-
-if [ -n "$ONION_ADDR" ]; then
-  echo "  .onion address: $ONION_ADDR"
-else
-  echo "  Tor still initializing — check later: cat /var/lib/tor/zigzag/hostname"
-fi
-
-# --------------------------------------------------
-# 3. Node.js 20 via nvm
-# --------------------------------------------------
-echo "[3/9] Installing Node.js 20..."
+echo "[2/7] Installing Node.js 20..."
 if ! command -v node &>/dev/null; then
   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
   export NVM_DIR="$HOME/.nvm"
@@ -102,15 +59,15 @@ node -v
 npm -v
 
 # --------------------------------------------------
-# 4. PM2
+# 3. PM2
 # --------------------------------------------------
-echo "[4/9] Installing PM2..."
+echo "[3/7] Installing PM2..."
 npm install -g pm2
 
 # --------------------------------------------------
-# 5. MySQL 8
+# 4. MySQL 8
 # --------------------------------------------------
-echo "[5/9] Setting up MySQL..."
+echo "[4/7] Setting up MySQL..."
 if ! command -v mysql &>/dev/null; then
   apt-get install -y -qq mysql-server
   systemctl enable mysql
@@ -127,9 +84,9 @@ EOSQL
 echo "  MySQL user 'zigzag' ready (password saved to .env)"
 
 # --------------------------------------------------
-# 6. Clone / pull repo
+# 5. Clone / pull repo
 # --------------------------------------------------
-echo "[6/9] Setting up application code..."
+echo "[5/7] Setting up application code..."
 if [ -d "$APP_DIR" ]; then
   cd "$APP_DIR"
   git pull origin main
@@ -139,9 +96,9 @@ else
 fi
 
 # --------------------------------------------------
-# 7. Install deps + build client
+# 6. Install deps + build client
 # --------------------------------------------------
-echo "[7/9] Installing dependencies & building..."
+echo "[6/7] Installing dependencies & building..."
 cd "$APP_DIR/server"
 npm ci --production
 
@@ -150,9 +107,9 @@ npm ci
 npm run build
 
 # --------------------------------------------------
-# 8. Create .env
+# 7. Create .env
 # --------------------------------------------------
-echo "[8/9] Configuring environment..."
+echo "[7/7] Configuring environment..."
 if [ ! -f "$APP_DIR/server/.env" ]; then
   SESSION_SECRET=$(openssl rand -hex 32)
 
@@ -189,9 +146,9 @@ else
 fi
 
 # --------------------------------------------------
-# 9. Apache2 config
+# 8. Apache2 config
 # --------------------------------------------------
-echo "[9/9] Configuring Apache2..."
+echo "Configuring Apache2..."
 a2enmod proxy proxy_http proxy_wstunnel rewrite headers ssl
 cp "$APP_DIR/deploy/apache/zigzag.conf" /etc/apache2/sites-available/zigzag.conf
 
