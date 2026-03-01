@@ -44,124 +44,67 @@ npm run dev             # starts on :5173, proxies /api → :3001
 
 ---
 
-## Production Deployment — Tor Hidden Service (.onion)
+## Production Deployment
 
-Full step-by-step guide to deploy ZigZag as a Tor hidden service on a fresh Ubuntu server.
+Step-by-step guide to deploy ZigZag on an Ubuntu server with Tor already configured.
 
-### 1 — Create a Server
-
-1. Get a **VPS** (DigitalOcean, Vultr, Hetzner, etc.)
-2. Choose **Ubuntu 22.04 LTS** or **24.04 LTS**
-3. Plan: **$6/mo** (1 vCPU, 1 GB RAM) is enough
-4. Authentication: **SSH Key** (recommended)
-
-### 2 — SSH Into the Server
-
-```bash
-ssh root@YOUR_SERVER_IP
-```
-
-### 3 — Quick Deploy (One Command)
-
-The fastest path — installs everything including Tor:
-
-```bash
-apt-get update && apt-get install -y git
-git clone https://github.com/adhilNuckz/zigzag.git ~/zigzag
-cd ~/zigzag
-chmod +x deploy/deploy.sh
-
-# Deploy as Tor Hidden Service (.onion) — DEFAULT
-bash deploy/deploy.sh
-
-# OR deploy as clearnet + Tor:
-# bash deploy/deploy.sh --clearnet yourdomain.com
-
-# OR deploy as clearnet only (no domain):
-# bash deploy/deploy.sh --clearnet
-```
-
-The script will:
-1. Install Tor, Node.js 20, MySQL 8, Apache2, PM2
-2. Configure the Tor hidden service → generates your `.onion` address
-3. Create the MySQL database
-4. Build the client
-5. Configure Apache2 as reverse proxy
-6. Start the backend via PM2
-7. Set `ONION_ONLY=true` (blocks clearnet access)
-8. Print your `.onion` URL
-
-**Your .onion address** will be displayed at the end. Open it in **Tor Browser**.
-
-Skip to **Step 12** if you use this.
+**Prerequisites:** A VPS (DigitalOcean, Vultr, etc.) with Ubuntu 22.04/24.04, Tor installed, and hidden service configured.
 
 ---
 
-### Manual Step-by-Step
+### Step 1 — SSH into the server
 
-### 4 — Install System Packages
+```bash
+ssh root@178.128.107.85
+```
+
+---
+
+### Step 2 — Install system packages
 
 ```bash
 apt-get update
 apt-get install -y git curl build-essential apache2 mysql-server
 ```
 
-### 5 — Install Tor
+---
 
-```bash
-# Add official Tor Project repo
-apt-get install -y apt-transport-https
-DISTRO=$(lsb_release -cs)
-echo "deb [signed-by=/usr/share/keyrings/tor-archive-keyring.gpg] https://deb.torproject.org/torproject.org ${DISTRO} main" \
-  > /etc/apt/sources.list.d/tor.list
-curl -fsSL https://deb.torproject.org/torproject.org/A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89.asc \
-  | gpg --dearmor -o /usr/share/keyrings/tor-archive-keyring.gpg
-apt-get update
-apt-get install -y tor deb.torproject.org-keyring
-```
-
-### 6 — Configure Tor Hidden Service
-
-```bash
-# Create hidden service directory
-mkdir -p /var/lib/tor/zigzag
-chown debian-tor:debian-tor /var/lib/tor/zigzag
-chmod 700 /var/lib/tor/zigzag
-
-# Add hidden service config
-cat >> /etc/tor/torrc <<'EOF'
-
-# === ZigZag Hidden Service ===
-HiddenServiceDir /var/lib/tor/zigzag/
-HiddenServicePort 80 127.0.0.1:80
-EOF
-
-# Restart Tor to generate .onion address
-systemctl restart tor
-sleep 5
-
-# Get your .onion address
-cat /var/lib/tor/zigzag/hostname
-```
-
-> Save this `.onion` address — this is your site URL.
-
-### 7 — Install Node.js 20
+### Step 3 — Install Node.js 20
 
 ```bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 source ~/.bashrc
 nvm install 20
 nvm alias default 20
+```
+
+Verify:
+
+```bash
+node -v   # v20.x.x
+npm -v
+```
+
+---
+
+### Step 4 — Install PM2
+
+```bash
 npm install -g pm2
 ```
 
-### 8 — Set Up MySQL
+---
+
+### Step 5 — Set up MySQL
 
 ```bash
 systemctl enable mysql
 systemctl start mysql
+```
 
+Create the database and user:
+
+```bash
 mysql -u root <<'SQL'
 CREATE DATABASE zigzag CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'zigzag'@'localhost' IDENTIFIED BY 'PICK_A_STRONG_PASSWORD';
@@ -170,22 +113,55 @@ FLUSH PRIVILEGES;
 SQL
 ```
 
-### 9 — Clone & Build
+> Replace `PICK_A_STRONG_PASSWORD` with a real password. You'll use the same value in the `.env` file.
+
+---
+
+### Step 6 — Clone the repo
 
 ```bash
 git clone https://github.com/adhilNuckz/zigzag.git ~/zigzag
 cd ~/zigzag
-
-cd server && npm ci --production
-cd ../client && npm ci && npm run build
 ```
 
-### 10 — Configure Environment
+---
+
+### Step 7 — Install dependencies & build
 
 ```bash
+# Server
 cd ~/zigzag/server
-nano .env
+npm ci --production
+
+# Client
+cd ~/zigzag/client
+npm ci
+npm run build
 ```
+
+---
+
+### Step 8 — Create the .env file
+
+Generate a session secret:
+
+```bash
+openssl rand -hex 32
+```
+
+Get your .onion address:
+
+```bash
+cat /var/lib/tor/zigzag/hostname
+```
+
+Create the file:
+
+```bash
+nano ~/zigzag/server/.env
+```
+
+Paste this (replace the placeholder values):
 
 ```dotenv
 NODE_ENV=production
@@ -198,34 +174,48 @@ DB_NAME=zigzag
 DB_USER=zigzag
 DB_PASS=PICK_A_STRONG_PASSWORD
 
-SESSION_SECRET=PASTE_RANDOM_64_HEX
+SESSION_SECRET=PASTE_THE_HEX_FROM_ABOVE
 CLIENT_URL=http://YOUR_ONION_ADDRESS.onion
 ONION_ONLY=true
 ```
 
-Generate secrets:
-```bash
-openssl rand -hex 32   # → SESSION_SECRET
-```
+> **`ONION_ONLY=true`** blocks all non-`.onion` requests.
 
-> **`ONION_ONLY=true`** — rejects any request not coming through a `.onion` address.
+---
 
-### 11 — Configure Apache2
+### Step 9 — Configure Apache2
+
+Enable required modules:
 
 ```bash
 a2enmod proxy proxy_http proxy_wstunnel rewrite headers
+```
+
+Copy and edit the config:
+
+```bash
 cp ~/zigzag/deploy/apache/zigzag.conf /etc/apache2/sites-available/zigzag.conf
+```
 
-# Edit: replace YOUR_DOMAIN_OR_IP with your .onion address
-# Edit: replace /var/www/zigzag/client/dist with /root/zigzag/client/dist
-nano /etc/apache2/sites-available/zigzag.conf
+Replace the placeholder values:
 
+```bash
+ONION_ADDR=$(cat /var/lib/tor/zigzag/hostname)
+sed -i "s/YOUR_DOMAIN_OR_IP/$ONION_ADDR/g" /etc/apache2/sites-available/zigzag.conf
+sed -i "s|/var/www/zigzag/client/dist|/root/zigzag/client/dist|g" /etc/apache2/sites-available/zigzag.conf
+```
+
+Enable the site:
+
+```bash
 a2dissite 000-default
 a2ensite zigzag
 systemctl restart apache2
 ```
 
-### 12 — Start the Backend
+---
+
+### Step 10 — Start the backend
 
 ```bash
 cd ~/zigzag
@@ -234,18 +224,57 @@ pm2 save
 pm2 startup systemd
 ```
 
-### 13 — Access Your Site
+---
 
-Open **Tor Browser** and navigate to:
+### Step 11 — Verify everything works
+
+```bash
+# Backend health check
+curl http://127.0.0.1:3001/api/health
+# → {"status":"ok","timestamp":...}
+
+# Check PM2
+pm2 status
+
+# Check Apache
+systemctl status apache2
+
+# Check Tor
+systemctl status tor
+```
+
+---
+
+### Step 12 — Open in Tor Browser
+
+Navigate to your `.onion` address:
 
 ```
 http://YOUR_ONION_ADDRESS.onion
 ```
 
-Health check from the server:
+---
+
+### Step 13 — Back up Tor identity (CRITICAL)
+
 ```bash
-curl http://127.0.0.1:3001/api/health
-# {"status":"ok","timestamp":...}
+cp -r /var/lib/tor/zigzag/ ~/zigzag-onion-backup/
+```
+
+> If you lose `/var/lib/tor/zigzag/`, your `.onion` address changes permanently.
+
+---
+
+### Quick Deploy (Alternative)
+
+If you prefer a single command instead of manual steps, the deploy script handles Steps 2–10 automatically. Tor must already be installed and configured.
+
+```bash
+apt-get update && apt-get install -y git
+git clone https://github.com/adhilNuckz/zigzag.git ~/zigzag
+cd ~/zigzag
+chmod +x deploy/deploy.sh
+bash deploy/deploy.sh
 ```
 
 ---
@@ -255,12 +284,11 @@ curl http://127.0.0.1:3001/api/health
 If you also want clearnet access (regular domain):
 
 ```bash
-# Deploy script with clearnet mode
 bash deploy/deploy.sh --clearnet yourdomain.com
 ```
 
 This will:
-- Set up Tor hidden service (you still get a `.onion` address)
+
 - Configure Apache for your domain
 - Enable SSL via Let's Encrypt
 - Set `ONION_ONLY=false` to allow clearnet access
@@ -271,23 +299,41 @@ This will:
 
 Every push to `main` auto-deploys to your server.
 
-### Set Up GitHub Secrets
-
-Go to your repo → **Settings → Secrets → Actions**:
-
-| Secret Name       | Value                              |
-|-------------------|------------------------------------|
-| `DROPLET_IP`      | Your server's public IP            |
-| `DROPLET_USER`    | `root`                             |
-| `SSH_PRIVATE_KEY` | Contents of your SSH private key   |
-
-### Generate an SSH Key
+### Set up SSH key on the droplet
 
 ```bash
 ssh-keygen -t ed25519 -C "github-actions" -f ~/.ssh/github_actions -N ""
 cat ~/.ssh/github_actions.pub >> ~/.ssh/authorized_keys
-cat ~/.ssh/github_actions   # ← copy as SSH_PRIVATE_KEY secret
+chmod 600 ~/.ssh/authorized_keys
 ```
+
+Copy the private key (you'll paste this into GitHub):
+
+```bash
+cat ~/.ssh/github_actions
+```
+
+### Add GitHub Secrets
+
+Go to your repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+
+| Secret Name       | Value                                     |
+|-------------------|-------------------------------------------|
+| `DROPLET_IP`      | `178.128.107.85`                          |
+| `DROPLET_USER`    | `root`                                    |
+| `SSH_PRIVATE_KEY` | Full output of `cat ~/.ssh/github_actions`|
+
+### Push to trigger deploy
+
+From your local machine:
+
+```bash
+git add -A
+git commit -m "deploy"
+git push origin main
+```
+
+Every push to `main` will now auto-deploy: pull code → install deps → build client → reload PM2.
 
 ---
 
